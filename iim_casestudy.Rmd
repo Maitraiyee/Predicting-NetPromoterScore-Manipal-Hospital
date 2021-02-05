@@ -1,0 +1,408 @@
+---
+title: "IIM_casestudy"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+#Importing Data
+library(readxl)
+library(caret)
+library(randomForest)
+library(adabag)
+data_bi=read_xlsx('C:/Users/rramn/Documents/Data_mining/IMB651-XLS-ENG.xlsx',sheet = 2)
+#str(data_bi)
+data_multi=read_xlsx('C:/Users/rramn/Documents/Data_mining/IMB651-XLS-ENG.xlsx',sheet = 4)
+#str(data_multi) 
+
+test_bi=read_xlsx('C:/Users/rramn/Documents/Data_mining/IMB651-XLS-ENG.xlsx',sheet = 3)
+
+test_multi=read_xlsx('C:/Users/rramn/Documents/Data_mining/IMB651-XLS-ENG.xlsx',sheet = 5)
+
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+# Missing values check
+library(VIM)
+agg_plot=aggr(data_bi,col=c('red','blue'),numbers=TRUE,prop=TRUE,sortVars=TRUE,labels=names(data_bi),cex.axis=1,gap=0)
+agg_plot1=aggr(data_multi,col=c('red','blue'),numbers=TRUE,prop=TRUE,sortVars=TRUE,labels=names(data_multi),cex.axis=1,gap=0)
+
+library(mice)
+md.pattern(data_bi)
+md.pattern(data_multi)
+
+table(data_bi$NPS_Status)
+table(data_multi$NPS_Status)
+
+```
+
+
+
+
+```{r}
+#Quasi complete separation
+library(brglm2)
+
+factor_convert <- function(x){
+     x <- as.factor(x)
+     return(x)
+}
+tem=data_bi[,c(4,8,50,52)]
+t=as.data.frame(data_bi[,c(3,5,6,7,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47)])
+for (j in 1:ncol(t)) {
+  v=t[,j]
+  jt=factor_convert(v)
+  t[,j]=jt
+}
+train_data=cbind(tem,t)
+
+train_rf=train_data
+mod=glm(as.factor(NPS_Status)~.,family = binomial("logit"), data = train_data ,method = "detect_separation",linear_program="dual")
+mod
+#Univariate analysis to check for quasi complete separation
+
+train_data$NPS_Status=ifelse(train_data$NPS_Status=="Detractor",1,0)
+train_data$NPS_Status=as.factor(train_data$NPS_Status)
+#str(train_data$NPS_Status)
+#str(train_data)
+# Analysing distribution of each categorical variable against the target
+for(j in 1:ncol(train_data))
+{
+  if(is.factor(train_data[,j]))
+  {
+    table(train_data$NPS_Status,train_data[,j])
+  }
+}
+
+quasi_list=c('MaritalStatus','BedCategory','State','Country','EM_DOCTOR','AE_PATIENTSTATUSINFO','DOC_TREATMENTEXPLAINATION','DOC_TREATMENTEFFECTIVENESS','NS_NURSESATTITUDE','NS_NURSEPROACTIVENESS','NS_NURSEPATIENCE','OVS_OVERALLSTAFFATTITUDE')
+
+
+
+
+# Converting Questionnare variables to ordinal variables for stepwise AIC
+ordtemp=train_data
+for (k in 1:ncol(ordtemp)) {
+  if(is.factor(ordtemp[,k]) && (length(levels(ordtemp[,k]))==4))
+  {
+    ordtemp[,k]=factor(ordtemp[,k],ordered = TRUE,levels = c("1","2","3","4"))
+  }
+}
+ordtemp$NS_NURSEPROACTIVENESS=factor(ordtemp$NS_NURSEPROACTIVENESS,ordered = TRUE,levels = c("1","2","3","4"))
+ordtemp=ordtemp[,!(colnames(ordtemp) %in% quasi_list)]
+#str(ordtemp)
+
+
+#Test data for Binary class classification
+
+
+tem=test_bi[,c(4,8,50,52)]
+t=as.data.frame(test_bi[,c(3,5,6,7,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47)])
+for (j in 1:ncol(t)) {
+  v=t[,j]
+  jt=factor_convert(v)
+  t[,j]=jt
+}
+test_data=cbind(tem,t)
+#str(train_rf)
+
+
+for(k in 13:ncol(test_data))
+{
+  test_data[,k]=factor(test_data[,k],ordered = TRUE,levels = c("1","2","3","4"))
+  train_rf[,k]=factor(train_rf[,k],ordered = TRUE,levels = c("1","2","3","4"))
+}
+train_rf=train_rf[,!(colnames(train_rf) %in% 'State')]
+test_data=test_data[,!(colnames(test_data) %in% 'State')]
+test_data$BedCategory = factor(test_data$BedCategory, levels = levels(train_rf$BedCategory))
+test_data$MaritalStatus = factor(test_data$MaritalStatus, levels = levels(train_rf$MaritalStatus))
+test_data$InsPayorcategory = factor(test_data$InsPayorcategory, levels = levels(train_rf$InsPayorcategory))
+test_data$Country = factor(test_data$Country, levels = levels(train_rf$Country))
+#str(test_data)
+new_data=train_rf
+#str(new_data)
+
+#Step wise Logistic Regression
+
+library(MASS)
+stepglm=glm(NPS_Status~.,data = ordtemp,family =binomial)
+st=stepAIC(stepglm)
+#The Final Logistic Regression model based on Step wise AIC
+st$anova
+
+
+
+
+
+```
+
+
+```{r}
+# Random forest for Binary class classification
+
+k <- 6
+nmethod <- 1
+folds <- cut(seq(1,nrow(new_data)),breaks=k,labels=FALSE) 
+models.err <- matrix(-1,k,nmethod, dimnames=list(paste0("Fold", 1:k), c("rf")))
+
+for(i in 1:k)
+{ 
+  #testIndexes <- which(folds==i, arr.ind=TRUE) 
+  #testData <- new_data[testIndexes, ] 
+  #trainData <- new_data[-testIndexes, ] 
+  
+  ind <- sample(2, nrow(new_data), replace = T, prob = c(0.7, 0.3))
+  Train <- new_data[ind == 1, ]
+  Validation <- new_data[ind == 2, ]
+  
+  pr.err <- c()
+  for(mt in seq(1,ncol(Train))){
+    library(randomForest)
+    rf <- randomForest(as.factor(NPS_Status)~., data = Train, ntree = 10, mtry = ifelse(mt == ncol(Train), mt - 1,mt))
+    predicted <- predict(rf, newdata = Validation, type = "class")
+    pr.err <- c(pr.err,mean(Validation$NPS_Status != predicted)) 
+  }
+  
+  bestmtry <- which.min(pr.err) 
+  
+  library(randomForest)
+  rf <- randomForest(as.factor(NPS_Status)~., data = new_data, ntree = 100, mtry = bestmtry)
+  rf.pred <- predict(rf, newdata = test_data, type = "class")
+  models.err[i] <- mean(test_data$NPS_Status != rf.pred)
+}
+summary(rf)
+print(bestmtry)
+rf <- randomForest(as.factor(NPS_Status)~., data = new_data, ntree = 100, mtry = bestmtry)
+  rf.pred1 <- predict(rf, newdata = test_data, type = "class")
+  confusionMatrix(rf.pred1,as.factor(test_data$NPS_Status))
+mean(models.err)
+
+```
+
+
+
+```{r}
+#Multi class classification
+
+
+tem1=data_multi[,c(4,8,50,51,52)]
+t1=as.data.frame(data_multi[,c(3,5,6,7,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47)])
+for (j in 1:ncol(t1)) {
+  v=t1[,j]
+  jt=factor_convert(v)
+  t1[,j]=jt
+}
+train_data1=cbind(tem1,t1)
+ordtemp1=train_data1
+#str(train_data1)
+
+
+for (k in 1:ncol(ordtemp1)) {
+  if(is.factor(ordtemp1[,k]) && (length(levels(ordtemp1[,k]))==4))
+  {
+    ordtemp1[,k]=factor(ordtemp1[,k],ordered = TRUE,levels = c("1","2","3","4"))
+  }
+}
+ordtemp1$NS_NURSEPROACTIVENESS=factor(ordtemp1$NS_NURSEPROACTIVENESS,ordered = TRUE,levels = c("1","2","3","4"))
+#str(ordtemp1)
+
+
+
+#Test data for Multi-class classification
+
+#str(test_multi)
+tem=test_multi[,c(4,8,50,51,52)]
+t=as.data.frame(test_multi[,c(3,5,6,7,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47)])
+for (j in 1:ncol(t)) {
+  v=t[,j]
+  jt=factor_convert(v)
+  t[,j]=jt
+}
+
+test_data1=cbind(tem,t)
+#str(test_data)
+test_data1=test_data1[,!(colnames(test_data1) %in% 'State')]
+train_ad=ordtemp1[,!(colnames(ordtemp1) %in% 'State')]
+test_data1$BedCategory = factor(test_data1$BedCategory, levels = levels(train_rf$BedCategory))
+test_data1$MaritalStatus = factor(test_data1$MaritalStatus, levels = levels(train_rf$MaritalStatus))
+test_data1$InsPayorcategory = factor(test_data1$InsPayorcategory, levels = levels(train_rf$InsPayorcategory))
+test_data1$Country = factor(test_data1$Country, levels = levels(train_rf$Country))
+#str(train_ad)
+for(k in 13:ncol(test_data1))
+{
+  test_data1[,k]=factor(test_data1[,k],ordered = TRUE,levels = c("1","2","3","4"))
+}
+test_mul=test_data1
+
+#Random Forest for Multi class classification
+
+rf <- randomForest(as.factor(NPS_Status)~., data = train_ad, ntree = 100, mtry = bestmtry)
+rf.pred <- predict(rf, newdata = test_mul, type = "class")
+confusionMatrix(rf.pred,as.factor(test_mul$NPS_Status))
+
+
+```
+
+```{r}
+#Adaboosting 
+
+library(adabag)
+library(ada)
+
+#str(ordtemp1)
+ad_param=expand.grid(mfinal=c(30,60,80),maxdepth=c(1,2,3))
+adabp=train(as.factor(NPS_Status)~.,data=ordtemp1,method="AdaBag",tuneGrid=ad_param)
+bestmfinal=adabp$bestTune$mfinal
+bestdepth=adabp$bestTune$maxdepth
+names(getModelInfo())
+
+# Ada boost for Binary class classification
+library(adabag)
+train_rf$NPS_Status=as.factor(train_rf$NPS_Status)
+ada_bi=boosting(NPS_Status~.,data = train_rf,mfinal = bestmfinal,control = rpart.control(maxdepth = bestdepth))
+boos1=predict.boosting(ada_bi,newdata = test_data)
+boos1$confusion
+boos1$error
+
+#Multi-class for multiclass classification
+library(adabag)
+train_ad$NPS_Status=as.factor(train_ad$NPS_Status)
+ada_multi=boosting(NPS_Status~.,data = train_ad,mfinal = bestmfinal,control = rpart.control(maxdepth = bestdepth))
+boos=predict.boosting(ada_multi,newdata = test_mul)
+boos$confusion
+boos$error
+
+```
+
+
+
+
+
+
+```{r}
+#Effect of Balancing methods on Multi-class classification 
+library(UBL)
+#ordtemp1$NPS_Status=as.factor(ordtemp1$NPS_Status)
+
+#Over sampling
+newd=RandOverClassif(NPS_Status~.,train_ad,C.perc = list(Detractor=1.7,Passive=1.3,Promotor=1))
+table(newd$NPS_Status)
+
+#RF and Adaboostresults
+rf <- randomForest(as.factor(NPS_Status)~., data = newd, ntree = 100, mtry = bestmtry)
+rf.pred1 <- predict(rf, newdata = test_mul, type = "class")
+confusionMatrix(rf.pred1,as.factor(test_mul$NPS_Status))
+
+ada_multi=boosting(NPS_Status~.,data = newd,mfinal = bestmfinal,control = rpart.control(maxdepth = bestdepth))
+boos1=predict.boosting(ada_multi,newdata = test_mul)
+boos1$confusion
+boos1$error
+
+
+
+#Under sampling
+newund=RandUnderClassif(NPS_Status~.,train_ad,C.perc = list(Promotor=0.7))
+table(newund$NPS_Status)
+
+
+#RF and Adaboost results
+
+rf <- randomForest(as.factor(NPS_Status)~., data = newund, ntree = 100, mtry = bestmtry)
+rf.pred2 <- predict(rf, newdata = test_mul, type = "class")
+confusionMatrix(rf.pred2,as.factor(test_mul$NPS_Status))
+
+ada_multi=boosting(NPS_Status~.,data = newund,mfinal = bestmfinal,control = rpart.control(maxdepth = bestdepth))
+boos2=predict.boosting(ada_multi,newdata = test_mul)
+boos2$confusion
+boos2$error
+
+#Smote
+#str(ordtemp1$NPS_Status)
+newsmote=SmoteClassif(NPS_Status~.,train_ad,C.perc = list(Detractor=1.6,Passive=1.3,Promotor=0.7),dist = "HEOM")
+table(newsmote$NPS_Status)
+
+#RF and Adaboost results
+
+rf <- randomForest(as.factor(NPS_Status)~., data = newsmote, ntree = 100, mtry = bestmtry,na.action=na.omit)
+rf.pred3 <- predict(rf, newdata = test_mul, type = "class")
+confusionMatrix(rf.pred3,as.factor(test_mul$NPS_Status))
+
+ada_multi=boosting(NPS_Status~.,data = newsmote,mfinal = bestmfinal,control = rpart.control(maxdepth = bestdepth))
+boos3=predict.boosting(ada_multi,newdata = test_mul)
+boos3$confusion
+boos3$error
+
+
+
+```
+
+```{r}
+#Effect of Balancing methods on Binary - class classification 
+library(UBL)
+#Over sampling
+newdb=RandOverClassif(NPS_Status~.,train_rf,C.perc = list(Detractor=1.5,Promotor=1))
+table(newdb$NPS_Status)
+
+#RF and Adaboost results
+
+rf <- randomForest(as.factor(NPS_Status)~., data = newdb, ntree = 100, mtry = bestmtry)
+rf.predb1 <- predict(rf, newdata = test_data, type = "class")
+confusionMatrix(rf.predb1,as.factor(test_data$NPS_Status))
+
+library(adabag)
+ada_bi=boosting(NPS_Status~.,data = newdb,mfinal = bestmfinal,control = rpart.control(maxdepth = bestdepth))
+boosb1=predict.boosting(ada_bi,newdata = test_data)
+boosb1$confusion
+boosb1$error
+
+#Under sampling
+newundb=RandUnderClassif(NPS_Status~.,train_rf,C.perc = list(Promotor=0.8))
+table(newundb$NPS_Status)
+
+#RF and Adaboost results
+
+rf <- randomForest(as.factor(NPS_Status)~., data = newundb, ntree = 100, mtry = bestmtry)
+rf.predb2 <- predict(rf, newdata = test_data, type = "class")
+confusionMatrix(rf.predb2,as.factor(test_data$NPS_Status))
+
+library(adabag)
+ada_bi=boosting(NPS_Status~.,data = newundb,mfinal = bestmfinal,control = rpart.control(maxdepth = bestdepth))
+boosb2=predict.boosting(ada_bi,newdata = test_data)
+boosb2$confusion
+boosb2$error
+
+
+#Smote
+newsmoteb=SmoteClassif(NPS_Status~.,train_rf,C.perc = list(Detractor=1.2,Promotor=0.8),dist = "HEOM")
+table(newsmoteb$NPS_Status)
+
+#RF and Adaboost results
+
+rf <- randomForest(as.factor(NPS_Status)~., data = newsmoteb, ntree = 100, mtry = bestmtry,na.action = na.omit)
+rf.predb3 <- predict(rf, newdata = test_data, type = "class")
+confusionMatrix(rf.predb3,as.factor(test_data$NPS_Status))
+
+library(adabag)
+ada_bi=boosting(NPS_Status~.,data = newsmoteb,mfinal = bestmfinal,control = rpart.control(maxdepth = bestdepth))
+boosb3=predict.boosting(ada_bi,newdata = test_data)
+boosb3$confusion
+boosb3$error
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
